@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>登録者100人チャレンジ</title>
+<style>
+  :root{
+    --bg:#0f0f14; --stage:#18181f; --panel:#f4f2ee; --ink:#12121a;
+    --good:#3ea66b; --bad:#e5484d; --accent:#ff4d6d; --sub:#ff5a5f;
+  }
+  *{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;background:var(--bg);color:var(--panel);
+    font-family:"Trebuchet MS","Hiragino Maru Gothic ProN",sans-serif;
+    display:flex;align-items:center;justify-content:center;
+    -webkit-user-select:none;user-select:none;touch-action:manipulation}
+  .wrap{width:min(96vw,460px);padding:14px}
+  h1{font-size:19px;letter-spacing:.04em;color:var(--sub);margin-bottom:2px}
+  .sub{color:#8a8a99;font-size:11px;margin-bottom:10px}
+  .hud{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .subs{font-size:13px;color:#8a8a99;letter-spacing:.03em}
+  .subs b{font-size:24px;color:var(--panel)}
+  .subs b.up{color:var(--good)} .subs b.down{color:var(--bad)}
+  .time{font-size:14px;color:var(--sub);letter-spacing:.06em}
+  .bar{height:8px;border-radius:5px;background:#26262f;overflow:hidden;margin-bottom:10px}
+  .bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--sub),var(--good));transition:width .25s}
+  canvas{width:100%;display:block;border-radius:12px;background:radial-gradient(circle at 50% 30%,#20202a,#141419);
+    box-shadow:0 12px 40px rgba(0,0,0,.5)}
+  .pad{margin-top:12px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:8px}
+  button{font-family:inherit;font-weight:bold;border:none;border-radius:12px;padding:16px 0;
+    font-size:18px;color:var(--panel);background:#26262f;cursor:pointer;transition:transform .05s}
+  button:active{transform:scale(.94)}
+  .up2{grid-column:2;grid-row:1}.left{grid-column:1;grid-row:2}.down2{grid-column:2;grid-row:2}.right{grid-column:3;grid-row:2}
+  .msg{text-align:center;min-height:22px;margin-top:12px;font-size:15px;color:var(--panel)}
+  .msg.win{color:var(--good);font-size:18px}.msg.lose{color:var(--bad);font-size:18px}
+  .restart{margin-top:10px;width:100%;background:var(--sub);color:#fff;display:none}
+  .restart.show{display:block}
+  .startrow{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #startbtn{background:var(--good);color:#08240f}
+  #stopbtn{background:#3a3030;color:#f4f2ee}
+  #startbtn:disabled,#stopbtn:disabled{background:#26262f;color:#6a6a77;cursor:default}
+  .legend{display:flex;gap:14px;justify-content:center;font-size:11px;color:#8a8a99;margin-top:8px}
+  .legend span{display:flex;align-items:center;gap:4px}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+</style>
+</head>
+<body>
+<a href="../index.html" class="__backlink" style="position:fixed;top:10px;left:10px;z-index:99999;background:rgba(0,0,0,.55);color:#fff;font-family:sans-serif;font-size:13px;font-weight:bold;text-decoration:none;padding:8px 12px;border-radius:20px">&#8592; 一覧</a>
+<div class="wrap">
+  <h1>登録者100人チャレンジ</h1>
+  <div class="sub">流れてくるセリフを読んで判断。良い発言だけ言って登録者100人へ！ 失言を言うと炎上。5分一本勝負。</div>
+  <div class="hud">
+    <div class="subs">登録者 <b id="subs">0</b> / 100</div>
+    <div class="time" id="time">5:00</div>
+  </div>
+  <div class="bar"><i id="fill"></i></div>
+  <canvas id="c"></canvas>
+  <div class="pad">
+    <button class="up2" data-d="up">▲</button>
+    <button class="left" data-d="left">◀</button>
+    <button class="down2" data-d="down">▼</button>
+    <button class="right" data-d="right">▶</button>
+  </div>
+  <button class="restart" id="restart">もう一回</button>
+  <div class="startrow">
+    <button id="startbtn">スタート</button>
+    <button id="stopbtn">ストップ</button>
+  </div>
+  <div class="legend">
+    <span>良い発言に触れる＝登録者アップ／失言に触れる＝炎上でダウン。色では分からない、内容で判断！</span>
+  </div>
+  <div class="msg" id="msg">矢印キー・WASD・ボタンで移動</div>
+</div>
+<script>
+const cv=document.getElementById('c');
+cv.tabIndex=0; // allow the canvas to receive keyboard focus
+cv.style.outline='none';
+const W=440,H=440; cv.width=W; cv.height=H;
+const ctx=cv.getContext('2d');
+const subsEl=document.getElementById('subs');
+const timeEl=document.getElementById('time');
+const fillEl=document.getElementById('fill');
+const msgEl=document.getElementById('msg');
+const restartBtn=document.getElementById('restart');
+const startBtn=document.getElementById('startbtn')||document.createElement('button');
+const stopBtn=document.getElementById('stopbtn')||document.createElement('button');
+
+const GOAL=100, TIME_LIMIT=300; // 5 min
+const GOOD_WORDS=['登録よろしく！','見てくれてありがとう','高評価お願い','コメント読むよ','いつも感謝！','次も頑張るね','一緒に楽しもう','プレゼント企画！','みんな大好き','応援ありがとう','質問答えるよ','最後まで見てね'];
+const BAD_WORDS=['アンチは黙れ','これステマだよ','低評価は通報','裏で悪口言った','案件だけど内緒','どうせ暇人だろ','適当に喋るわ','パクってみた','数字が全て','見下してるわ','炎上商法いくぞ','嘘ついちゃえ'];
+
+let player, words, subs, timeLeft, running, spawnT, timerId, lastFrame, dir;
+let popups=[]; // floating +N / -N
+let state='idle'; // idle | playing | paused | over
+
+function reset(){
+  player={x:W/2,y:H/2,r:20,vx:0,vy:0};
+  words=[]; subs=0; timeLeft=TIME_LIMIT; running=false; spawnT=0; dir={};
+  popups=[];
+  spawnWord(); spawnWord();
+  subsEl.textContent=0; subsEl.className='';
+  setTime(); setFill();
+  state='idle';
+  msgEl.textContent='「スタート」で開始'; msgEl.className='msg';
+  restartBtn.classList.remove('show');
+  startBtn.disabled=false; startBtn.textContent='スタート';
+  stopBtn.disabled=true;
+  clearInterval(timerId);
+  lastFrame=performance.now();
+}
+
+function startGame(){
+  if(state==='playing') return;
+  state='playing'; running=true;
+  msgEl.textContent='良いセリフを言い、失言を避けろ！'; msgEl.className='msg';
+  startBtn.disabled=true;
+  stopBtn.disabled=false; stopBtn.textContent='ストップ';
+  cv.focus();
+  clearInterval(timerId);
+  timerId=setInterval(()=>{ if(state!=='playing')return; timeLeft--; setTime();
+    if(timeLeft<=0) end(false,'時間切れ…'); },1000);
+  lastFrame=performance.now();
+}
+
+function togglePause(){
+  if(state==='playing'){
+    state='paused'; running=false;
+    stopBtn.textContent='再開';
+    msgEl.textContent='一時停止中'; msgEl.className='msg';
+    dir.up=dir.down=dir.left=dir.right=false;
+  } else if(state==='paused'){
+    state='playing'; running=true;
+    stopBtn.textContent='ストップ';
+    msgEl.textContent='良いセリフを言い、失言を避けろ！'; msgEl.className='msg';
+    cv.focus();
+    lastFrame=performance.now();
+  }
+}
+
+function setTime(){ const m=Math.floor(timeLeft/60),s=timeLeft%60; timeEl.textContent=m+':'+String(s).padStart(2,'0'); }
+function setFill(){ fillEl.style.width=Math.max(0,Math.min(100,subs))+'%'; }
+
+function spawnWord(){
+  const good=Math.random()<0.62;
+  const text=good?GOOD_WORDS[Math.random()*GOOD_WORDS.length|0]:BAD_WORDS[Math.random()*BAD_WORDS.length|0];
+  const side=Math.random()*4|0; // 0 top,1 bottom,2 left,3 right
+  const speed=1.6+Math.random()*1.2+ (TIME_LIMIT-timeLeft)/320; // slower, gentle ramp
+  let x,y,vx=0,vy=0;
+  if(side===0){x=40+Math.random()*(W-80);y=-20;vy=speed;}
+  else if(side===1){x=40+Math.random()*(W-80);y=H+20;vy=-speed;}
+  else if(side===2){x=-20;y=40+Math.random()*(H-80);vx=speed;}
+  else {x=W+20;y=40+Math.random()*(H-80);vx=-speed;}
+  ctx.font='bold 17px "Hiragino Maru Gothic ProN",sans-serif';
+  words.push({x,y,vx,vy,good,text,w:ctx.measureText(text).width});
+}
+
+function popup(text,color,x,y){ popups.push({text,color,x,y,life:55}); }
+
+function hitWord(word){
+  if(word.good){
+    const gain=2+ (Math.random()*4|0); // +2..+5
+    subs+=gain;
+    popup('+'+gain,'#3ea66b',word.x,word.y);
+    flash('「'+word.text+'」で好感度アップ！ +'+gain,'up');
+  } else {
+    const loss=3+ (Math.random()*13|0); // random -3..-15
+    subs=Math.max(0,subs-loss);
+    popup('-'+loss,'#e5484d',word.x,word.y);
+    flash('失言「'+word.text+'」で炎上！ -'+loss,'down');
+  }
+  subsEl.textContent=subs; setFill();
+  if(subs>=GOAL) end(true,'');
+}
+
+let flashTimer=null;
+function flash(t,cls){
+  msgEl.textContent=t; msgEl.className='msg';
+  subsEl.className=cls==='up'?'up':cls==='down'?'down':'';
+  clearTimeout(flashTimer);
+  flashTimer=setTimeout(()=>{ if(state==='playing'){msgEl.textContent='良いセリフを言い、失言を避けろ！';subsEl.className='';} },900);
+}
+
+function loop(now){
+  const dt=Math.min(40,now-(lastFrame||now)); lastFrame=now;
+  if(state==='playing'){
+    // movement
+    const sp=5.6;
+    player.vx=(dir.right?1:0)-(dir.left?1:0);
+    player.vy=(dir.down?1:0)-(dir.up?1:0);
+    player.x+=player.vx*sp; player.y+=player.vy*sp;
+    player.x=Math.max(player.r,Math.min(W-player.r,player.x));
+    player.y=Math.max(player.r,Math.min(H-player.r,player.y));
+    // spawn a steady, continuous stream
+    spawnT-=dt;
+    if(spawnT<=0){
+      spawnWord();
+      spawnT=780;                 // slower spawn — fewer words
+    }
+    // top-up so the screen keeps a light stream
+    const MIN_ON_SCREEN=3;
+    while(words.length<MIN_ON_SCREEN) spawnWord();
+    // move words + collide (rectangle pill vs player circle — whole word is touchable)
+    for(const wd of words){ wd.x+=wd.vx; wd.y+=wd.vy; }
+    words=words.filter(wd=>{
+      const halfW=Math.max(46,wd.w+22)/2, halfH=15;
+      const cx=Math.max(wd.x-halfW, Math.min(player.x, wd.x+halfW));
+      const cy=Math.max(wd.y-halfH, Math.min(player.y, wd.y+halfH));
+      const dx=player.x-cx, dy=player.y-cy;
+      if(dx*dx+dy*dy < player.r*player.r){ hitWord(wd); return false; }
+      return wd.x>-90&&wd.x<W+90&&wd.y>-50&&wd.y<H+50;
+    });
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  // words
+  ctx.font='bold 17px "Hiragino Maru Gothic ProN",sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const wd of words){
+    const w=Math.max(46,wd.w+24);
+    ctx.fillStyle='rgba(20,20,26,.82)';
+    roundRect(wd.x-w/2,wd.y-16,w,32,16); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=2; roundRect(wd.x-w/2,wd.y-16,w,32,16); ctx.stroke();
+    ctx.fillStyle='#ffffff';
+    ctx.fillText(wd.text,wd.x,wd.y+1);
+  }
+  // player (dog youtuber)
+  ctx.font='30px serif';
+  ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,7);
+  ctx.fillStyle='rgba(255,90,95,.25)'; ctx.fill();
+  ctx.strokeStyle='#ff5a5f'; ctx.lineWidth=3; ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('🐕',player.x,player.y+1);
+  // popups
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const p of popups){
+    ctx.globalAlpha=Math.min(1,p.life/30);
+    ctx.font='bold 20px sans-serif'; ctx.fillStyle=p.color;
+    ctx.fillText(p.text,p.x,p.y); ctx.globalAlpha=1;
+    p.y-=0.8; p.life--;
+  }
+  popups=popups.filter(p=>p.life>0);
+}
+
+function roundRect(x,y,w,h,r){
+  ctx.beginPath(); ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+
+function end(win,text){
+  if(state==='over')return; state='over'; running=false; clearInterval(timerId);
+  startBtn.disabled=true; stopBtn.disabled=true;
+  if(win){ msgEl.textContent='登録者100人達成！ 人気YouTuberだ 🎉'; msgEl.className='msg win'; }
+  else{ msgEl.textContent=text+' 登録者 '+subs+'人で終了'; msgEl.className='msg lose'; }
+  restartBtn.classList.add('show');
+}
+
+// controls
+function setDir(d,on){ dir[d]=on; }
+document.querySelectorAll('.pad button').forEach(b=>{
+  const d=b.dataset.d;
+  ['pointerdown'].forEach(e=>b.addEventListener(e,ev=>{ev.preventDefault();setDir(d,true);}));
+  ['pointerup','pointerleave','pointercancel'].forEach(e=>b.addEventListener(e,()=>setDir(d,false)));
+});
+const KEY={
+  ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',
+  KeyW:'up',KeyS:'down',KeyA:'left',KeyD:'right',
+  Up:'up',Down:'down',Left:'left',Right:'right' // older browsers (e.key)
+};
+function keyName(e){ return KEY[e.code] || KEY[e.key]; }
+window.addEventListener('keydown',e=>{ const d=keyName(e); if(d){e.preventDefault();setDir(d,true);} });
+window.addEventListener('keyup',e=>{ const d=keyName(e); if(d) setDir(d,false); });
+window.addEventListener('blur',()=>{ dir.up=dir.down=dir.left=dir.right=false; });
+cv.addEventListener('pointerdown',()=>cv.focus());
+setTimeout(()=>{ try{ cv.focus(); }catch(e){} }, 100);
+restartBtn.addEventListener('click',()=>{ reset(); });
+startBtn.addEventListener('click',startGame);
+stopBtn.addEventListener('click',togglePause);
+
+reset(); loop();
+</script>
+</body>
+</html>

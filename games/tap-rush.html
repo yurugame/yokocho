@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>2秒連打</title>
+<style>
+  :root {
+    --bg: #12131a;
+    --panel: #f5f3ef;
+    --accent: #ff4d5e;
+    --accent2: #ffb03a;
+    --ready: #4db6ac;
+    --ink: #12131a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--panel);
+    font-family: "Trebuchet MS", "Hiragino Maru Gothic ProN", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+    overflow: hidden;
+  }
+  .wrap { width: min(94vw, 480px); padding: 16px; text-align: center; }
+  h1 { color: var(--accent2); font-size: 24px; letter-spacing: .08em; margin-bottom: 6px; }
+  .sub { color: #9a9aae; font-size: 12px; margin-bottom: 20px; }
+  .stats {
+    display: flex; justify-content: space-around; margin-bottom: 18px;
+    font-size: 13px; color: #9a9aae; letter-spacing: .04em;
+  }
+  .stats b { display: block; font-size: 22px; color: var(--panel); margin-top: 2px; }
+  .timer {
+    font-size: 15px; color: var(--accent2); height: 20px; margin-bottom: 12px; letter-spacing: .1em;
+  }
+  .pad {
+    width: 100%; aspect-ratio: 1 / 1; max-height: 46vh;
+    border: none; border-radius: 28px; cursor: pointer;
+    background: radial-gradient(circle at 50% 40%, #2b2d3d, #1a1b26);
+    color: var(--panel);
+    font-family: inherit; font-weight: bold;
+    font-size: clamp(26px, 9vw, 46px);
+    letter-spacing: .04em; line-height: 1.25;
+    transition: transform .04s, background .15s, box-shadow .15s;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5), inset 0 0 0 2px rgba(255,255,255,.05);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .pad.ready { background: radial-gradient(circle at 50% 40%, #2f5f5a, #1c3b38); box-shadow: 0 12px 40px rgba(77,182,172,.3), inset 0 0 0 2px rgba(77,182,172,.4); color: #d6fffb; }
+  .pad.live  { background: radial-gradient(circle at 50% 40%, #7a2530, #4a141b); box-shadow: 0 12px 50px rgba(255,77,94,.45), inset 0 0 0 2px rgba(255,77,94,.5); color: #fff; }
+  .pad:active { transform: scale(.97); }
+  .count { font-size: clamp(60px, 22vw, 120px); font-weight: bold; line-height: 1; }
+  .result { min-height: 24px; margin-top: 18px; font-size: 16px; color: var(--accent2); }
+  .again {
+    margin-top: 16px; font-family: inherit; font-weight: bold; border: none; border-radius: 12px;
+    padding: 12px 30px; font-size: 15px; color: var(--ink); background: var(--accent2); cursor: pointer;
+    transition: transform .05s; visibility: hidden;
+  }
+  .again:active { transform: scale(.95); }
+  .again.show { visibility: visible; }
+</style>
+</head>
+<body>
+<a href="../index.html" class="__backlink" style="position:fixed;top:10px;left:10px;z-index:99999;background:rgba(0,0,0,.55);color:#fff;font-family:sans-serif;font-size:13px;font-weight:bold;text-decoration:none;padding:8px 12px;border-radius:20px">&#8592; 一覧</a>
+<div class="wrap">
+  <h1>2秒連打</h1>
+  <div class="sub">下の「スタート」で開始。連打パッドを最初に叩いた瞬間から2秒！</div>
+  <div class="stats">
+    <span>ベスト<b id="best">0</b></span>
+    <span>前回<b id="last">–</b></span>
+  </div>
+  <div class="timer" id="timer">&nbsp;</div>
+  <button class="pad ready" id="pad">スタートを<br>押してね</button>
+  <div class="result" id="result">&nbsp;</div>
+  <button class="again show" id="again">スタート</button>
+</div>
+<script>
+const pad = document.getElementById('pad');
+const timerEl = document.getElementById('timer');
+const resultEl = document.getElementById('result');
+const bestEl = document.getElementById('best');
+const lastEl = document.getElementById('last');
+const againBtn = document.getElementById('again');
+
+const DURATION = 2000; // 2 seconds
+let state = 'idle';    // idle | counting | done
+let count = 0;
+let best = 0;
+let endTime = 0;
+let rafId = null;
+
+function comment(n) {
+  if (n >= 28) return `${n}回！ 指、機械化した？`;
+  if (n >= 22) return `${n}回！ 化け物クラス`;
+  if (n >= 16) return `${n}回！ なかなかやるね`;
+  if (n >= 10) return `${n}回。まあ人間だね`;
+  if (n >= 4)  return `${n}回…寝てた？`;
+  return `${n}回。ボタン壊れてないよ？`;
+}
+
+function start() {
+  state = 'armed';   // waiting for the first pad tap to begin timing
+  count = 0;
+  pad.classList.remove('ready');
+  pad.classList.add('live');
+  pad.innerHTML = 'ここを<br>連打！';
+  timerEl.textContent = 'のこり ' + (DURATION/1000).toFixed(2) + '秒';
+  resultEl.innerHTML = '&nbsp;';
+  againBtn.classList.remove('show');
+}
+
+function tick() {
+  const remain = Math.max(0, endTime - performance.now());
+  timerEl.textContent = 'のこり ' + (remain / 1000).toFixed(2) + '秒';
+  if (remain <= 0) { finish(); return; }
+  rafId = requestAnimationFrame(tick);
+}
+
+function bump() {
+  if (state !== 'counting') return;
+  count++;
+  const c = pad.querySelector('.count');
+  if (c) c.textContent = count;
+}
+
+function finish() {
+  if (rafId) cancelAnimationFrame(rafId);
+  state = 'done';
+  timerEl.innerHTML = 'おわり！';
+  pad.classList.remove('live');
+  pad.classList.add('ready');
+  pad.innerHTML = '<span class="count">' + count + '</span>';
+  lastEl.textContent = count;
+  if (count > best) { best = count; bestEl.textContent = best; resultEl.textContent = '自己ベスト更新！ ' + comment(count); }
+  else { resultEl.textContent = comment(count); }
+  againBtn.textContent = 'もう一回';
+  againBtn.classList.add('show');
+}
+
+// pad taps: the first tap starts the timer, all taps count
+function onPadPress() {
+  if (state === 'armed') {
+    state = 'counting';
+    count = 0;
+    endTime = performance.now() + DURATION;
+    pad.innerHTML = '<span class="count">0</span>';
+    tick();
+    bump();
+  } else if (state === 'counting') {
+    bump();
+  }
+}
+
+pad.addEventListener('pointerdown', e => { e.preventDefault(); onPadPress(); });
+document.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (e.code === 'Space') { e.preventDefault(); onPadPress(); }
+  if (e.code === 'Enter') { e.preventDefault(); if (state === 'idle' || state === 'done') start(); }
+});
+againBtn.addEventListener('click', () => { if (state === 'idle' || state === 'done') start(); });
+</script>
+</body>
+</html>

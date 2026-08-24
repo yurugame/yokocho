@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>脱出ゲーム（邪魔あり）</title>
+<style>
+  :root{
+    --bg:#171a21; --room:#242a36; --panel:#eae6dd; --ink:#20242e;
+    --accent:#e8b84b; --lock:#c9583c; --ok:#5aa06a; --pop:#3a6ea5;
+  }
+  *{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+  html,body{min-height:100%;background:var(--bg);color:var(--panel);
+    font-family:"Trebuchet MS","Hiragino Maru Gothic ProN",sans-serif;
+    display:flex;align-items:center;justify-content:center;
+    -webkit-user-select:none;user-select:none;touch-action:manipulation;padding:14px}
+  .wrap{width:min(96vw,470px);position:relative}
+  h1{font-size:19px;letter-spacing:.03em;color:var(--accent);margin-bottom:2px}
+  .sub{color:#8b93a3;font-size:11px;margin-bottom:10px}
+  .hud{display:flex;justify-content:space-between;font-size:13px;color:#8b93a3;margin-bottom:8px}
+  .hud b{color:var(--panel);font-size:16px}
+  .room{background:var(--room);border-radius:14px;padding:18px;min-height:340px;
+    box-shadow:0 12px 40px rgba(0,0,0,.5);position:relative;overflow:hidden}
+  .step{font-size:15px;line-height:1.6}
+  .clue{background:rgba(255,255,255,.06);border-left:3px solid var(--accent);
+    padding:10px 12px;border-radius:6px;margin:10px 0;font-size:14px}
+  .answer{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+  input[type=text]{flex:1;min-width:120px;font-family:inherit;font-size:16px;padding:12px;border-radius:10px;
+    border:2px solid #3a424f;background:#1b1f28;color:var(--panel)}
+  input:focus{outline:none;border-color:var(--accent)}
+  .btn{font-family:inherit;font-weight:bold;border:none;border-radius:10px;padding:12px 18px;
+    font-size:15px;color:var(--ink);background:var(--accent);cursor:pointer;transition:transform .05s}
+  .btn:active{transform:scale(.95)}
+  .feedback{min-height:20px;margin-top:10px;font-size:14px}
+  .feedback.bad{color:var(--lock)} .feedback.good{color:var(--ok)}
+  .progress{display:flex;gap:6px;margin-bottom:10px}
+  .dot{width:100%;height:6px;border-radius:3px;background:#3a424f}
+  .dot.done{background:var(--ok)}
+
+  /* annoying popup */
+  .pop{position:absolute;z-index:50;width:min(88%,320px);background:var(--panel);color:var(--ink);
+    border-radius:14px;padding:16px;box-shadow:0 18px 50px rgba(0,0,0,.6);
+    left:50%;top:50%;transform:translate(-50%,-50%) scale(.7);opacity:0;
+    animation:popin .18s ease-out forwards}
+  @keyframes popin{to{transform:translate(-50%,-50%) scale(1);opacity:1}}
+  .pop .pt{font-size:11px;color:var(--pop);font-weight:bold;letter-spacing:.05em;margin-bottom:4px}
+  .pop .pq{font-size:16px;font-weight:bold;margin-bottom:12px;line-height:1.4}
+  .pop .popts{display:flex;flex-direction:column;gap:8px}
+  .pop .preply{display:flex;gap:8px;margin-top:4px}
+  .pop .pin{flex:1;min-width:0;font-family:inherit;font-size:14px;padding:10px;border-radius:9px;
+    border:2px solid #cfc9bc;background:#fff;color:var(--ink)}
+  .pop .pin:focus{outline:none;border-color:var(--pop)}
+  .pop .psend{padding:10px 14px;font-size:14px}
+  .pop .opt{font-family:inherit;font-size:14px;padding:11px;border-radius:9px;border:none;
+    background:#e0dbd0;color:var(--ink);cursor:pointer;text-align:left}
+  .pop .opt:active{background:#cfc9bc}
+  .pop .x{position:absolute;top:8px;right:12px;font-size:18px;color:#9a948a;cursor:pointer;background:none;border:none}
+  .veil{position:absolute;inset:0;background:rgba(10,12,16,.55);z-index:40;border-radius:14px}
+
+  .blocker{position:fixed;inset:0;z-index:200;background:linear-gradient(160deg,#e8b84b,#e0662f);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+    animation:burst .22s cubic-bezier(.2,1.5,.4,1) forwards;color:#221a10;text-align:center;padding:20px}
+  @keyframes burst{from{transform:scale(.2);opacity:0}to{transform:scale(1);opacity:1}}
+  .blocker .bface{font-size:clamp(90px,32vw,180px);line-height:1;animation:wiggle .5s ease-in-out infinite}
+  @keyframes wiggle{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
+  .blocker .bline{font-size:clamp(20px,6vw,30px);font-weight:bold}
+  .blocker .bdismiss{margin-top:6px;background:#221a10;color:#ffe;}
+  .blocker.react{background:linear-gradient(160deg,#e0662f,#b5352b)}
+  .blocker.react .bdismiss{background:#3a120e;color:#ffe}
+  .win{text-align:center;padding:30px 10px}  .win .big{font-size:26px;color:var(--accent);font-weight:bold;margin-bottom:10px}
+  .startover{margin-top:14px}
+</style>
+</head>
+<body>
+<a href="../index.html" class="__backlink" style="position:fixed;top:10px;left:10px;z-index:99999;background:rgba(0,0,0,.55);color:#fff;font-family:sans-serif;font-size:13px;font-weight:bold;text-decoration:none;padding:8px 12px;border-radius:20px">&#8592; 一覧</a>
+<div class="wrap">
+  <h1>謎の部屋からの脱出</h1>
+  <div class="sub">10の謎を解いて脱出せよ。…なぜか関係ない通知がやたら割り込んでくるけど。</div>
+  <div class="hud">
+    <span>進行 <b id="stepn">1</b> / <span id="steptotal">5</span></span>
+    <span>じゃまされた回数 <b id="annoy">0</b></span>
+  </div>
+  <div class="progress" id="progress"></div>
+  <div class="room" id="room"></div>
+</div>
+<script>
+const ALL_PUZZLES=[
+  {title:'扉の暗証番号', body:'壁に走り書き。「最初は3、次はその倍、最後は2つの差」。3桁で入力。', clue:'3 → 6 → (6-3)。', answer:'363', hint:'3・6・3 → 363'},
+  {title:'本棚の合言葉', body:'背表紙の頭文字。「Neko, Enpitsu, Kagi, Overall」。', clue:'頭文字をローマ字でつなげる。', answer:'neko', hint:'N・E・K・O → neko'},
+  {title:'最後の鍵', body:'金庫に「一年で最も昼が短い月は？（数字）」。', clue:'冬至がある月。', answer:'12', hint:'冬至=12月 → 12'},
+  {title:'時計の謎', body:'止まった時計は「4時20分」。長針と短針が指す数字を足すと？', clue:'短針=4、長針=4(20分)。4+4。', answer:'8', hint:'4+4 → 8'},
+  {title:'色の順番', body:'信号は上から順に何色？頭文字をつなげて（あかきあお→…）ローマ字3文字目まで。', clue:'赤→黄→青。ローマ字で「aka」を入力。', answer:'aka', hint:'一番上は赤 → aka'},
+  {title:'足し算の石', body:'石に「7 と 8 を足して、一の位だけ答えよ」。', clue:'7+8=15、一の位。', answer:'5', hint:'15の一の位 → 5'},
+  {title:'かくれた数', body:'「いちご」は何個の音？ひらがなの文字数を数字で。', clue:'い・ち・ご。', answer:'3', hint:'3文字 → 3'},
+  {title:'方角の鍵', body:'太陽が沈む方角は？ローマ字で（例: higashi）。', clue:'日が沈むのは西。', answer:'nishi', hint:'西 → nishi'},
+  {title:'ひっくり返す', body:'「くり」を逆から読むと？ひらがなで。', clue:'く・り を逆に。', answer:'りく', hint:'りく'},
+  {title:'サイコロ', body:'サイコロの向かい合う面の和は必ず7。1の裏は？数字で。', clue:'7-1。', answer:'6', hint:'6'},
+  {title:'週の数', body:'1週間は何日？数字で。', clue:'月〜日。', answer:'7', hint:'7'},
+  {title:'虹の色', body:'日本で虹は何色とされる？数字で。', clue:'七色。', answer:'7', hint:'7'},
+  {title:'数列の穴', body:'2, 6, 12, 20, 30, ? 次の数は？', clue:'差が 4,6,8,10… 次の差は12。', answer:'42', hint:'30+12 → 42'},
+  {title:'暗号の足し算', body:'A=1, B=2, C=3… では「CAB」を足すといくつ？', clue:'3+1+2。', answer:'6', hint:'3+1+2 → 6'},
+  {title:'鏡文字', body:'鏡に「E」が映って見える。数字の「3」に見えるのは何を映したとき？「E」か「M」か「W」。', clue:'Eを左右反転すると3に見える。', answer:'e', hint:'E → 3'},
+  {title:'時間の計算', body:'今9:45。75分後は何時何分？(例: 8:30 の形式で)', clue:'9:45 + 1時間15分。', answer:'11:00', hint:'11:00'},
+  {title:'素数さがし', body:'10と20の間にある素数のうち、最も大きいものは？', clue:'11,13,17,19…', answer:'19', hint:'19'},
+  {title:'言葉の暗号', body:'「たいやき」から母音(あいうえお)だけ抜き出して並べると？ひらがなで。', clue:'た(a)い(i)や(a)き(i)→あいあい', answer:'あいあい', hint:'あいあい'},
+  {title:'サイコロ2つ', body:'サイコロを2つ振って出た目の合計が一番出やすいのは？数字で。', clue:'7が最頻。', answer:'7', hint:'7'},
+  {title:'図形の角', body:'五角形の内角の和は何度？数字で。', clue:'(5-2)×180。', answer:'540', hint:'540'},
+  {title:'逆さ時計', body:'鏡に映った時計が「3:00」に見える。本当の時刻は？(例: 6:00 の形式で)', clue:'12から左右反転 → 9:00。', answer:'9:00', hint:'9:00'},
+];
+
+// annoying interruptions (a big pool; shown without repeats per game)
+const INTERRUPTS=[
+  {t:'アンケート',q:'ところで、あなたは犬派？猫派？',o:['犬派','猫派','どっちも好き','今それどころじゃない']},
+  {t:'お知らせ',q:'新しい絵文字が追加されました。確認しますか？',o:['あとで','見る','興味ない','集中させて…']},
+  {t:'突然の質問',q:'昨日の晩ごはん、何食べた？',o:['覚えてない','カレー','関係ある？','邪魔しないで']},
+  {t:'通知',q:'あなたのスマホの写真、そろそろ整理しませんか？',o:['しない','あとで','なんで今？','うるさい！']},
+  {t:'豆知識',q:'カタツムリには歯が1万本以上あるって知ってた？',o:['へえ','知らんがな','だから？','今いる？その情報']},
+  {t:'アンケート',q:'好きな季節はどれ？（脱出には無関係です）',o:['春','夏','秋','冬','無関係て言うな']},
+  {t:'確認',q:'本当に脱出したいですか？',o:['はい','はい','はい','当たり前でしょ']},
+  {t:'おすすめ',q:'この部屋に似た別の部屋もありますよ。行ってみます？',o:['行かない','今の解かせて','なんで増やすの','絶対いや']},
+  {t:'豆知識',q:'タコの心臓は3つあるらしいよ。すごくない？',o:['すごい','どうでもいい','後にして','集中！']},
+  {t:'アンケート',q:'朝はパン派？ごはん派？',o:['パン','ごはん','食べない','聞くタイミング']},
+  {t:'通知',q:'アプリの評価をお願いします！星いくつ？',o:['★','★★','★★★','脱出させて']},
+  {t:'突然の質問',q:'あなたの推しの色は何色？',o:['青','赤','緑','なんで今聞くの']},
+  {t:'お知らせ',q:'メンテナンスのお知らせ（この部屋は対象外です）',o:['了解','読む必要ある？','閉じさせて','はい…']},
+  {t:'豆知識',q:'バナナは実は「ベリー」の一種なんだって。',o:['へえ〜','いらん情報','後で','関係ある？']},
+  {t:'確認',q:'いま集中してます？（Yes/No）',o:['してた','邪魔した張本人が？','No…','はい']},
+  {t:'アンケート',q:'休日は家派？外派？',o:['家','外','聞くな','どっちでもいい']},
+  {t:'おすすめ',q:'もっと難しい謎、追加しときますね！',o:['やめて','いらない','余計なことを','結構です']},
+  {t:'突然の質問',q:'今の気分を天気で例えると？',o:['晴れ','くもり','嵐（あなたのせい）','無回答']},
+];
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]];} return a; }
+
+let PUZZLES=[];
+let popQueue=[];
+function newPopQueue(){ popQueue=shuffle(INTERRUPTS.slice()); }
+function nextInterrupt(){ if(popQueue.length===0) newPopQueue(); return popQueue.pop(); }
+
+const room=document.getElementById('room');
+const stepnEl=document.getElementById('stepn');
+const annoyEl=document.getElementById('annoy');
+const progressEl=document.getElementById('progress');
+
+let step=0, annoyCount=0, popupTimer=null, solving=false;
+
+function buildProgress(){
+  progressEl.innerHTML='';
+  for(let i=0;i<PUZZLES.length;i++){
+    const d=document.createElement('div'); d.className='dot'+(i<step?' done':''); progressEl.appendChild(d);
+  }
+}
+
+function renderPuzzle(){
+  solving=true;
+  const p=PUZZLES[step];
+  stepnEl.textContent=step+1;
+  const tot=document.getElementById('steptotal'); if(tot) tot.textContent=PUZZLES.length;
+  buildProgress();
+  room.innerHTML=`
+    <div class="step">
+      <b>${p.title}</b>
+      <p style="margin-top:8px">${p.body}</p>
+      <div class="clue" id="clue" style="display:none">${p.clue}</div>
+      <div class="answer">
+        <input type="text" id="ans" placeholder="答えを入力" autocomplete="off">
+        <button class="btn" id="submit">確定</button>
+      </div>
+      <div class="feedback" id="fb"></div>
+      <button class="btn" id="hint" style="background:#3a424f;color:#cfd4dd;margin-top:8px;font-size:12px;padding:8px 12px">ヒントを見る</button>
+    </div>`;
+  const input=document.getElementById('ans');
+  const submit=document.getElementById('submit');
+  const fb=document.getElementById('fb');
+  const hintBtn=document.getElementById('hint');
+  const clueBox=document.getElementById('clue');
+  input.focus();
+  function check(){
+    const v=input.value.trim().toLowerCase();
+    if(v===p.answer){
+      fb.textContent='正解！ カチッと音がした。'; fb.className='feedback good';
+      clearTimeout(popupTimer);
+      step++;
+      setTimeout(()=>{ if(step>=PUZZLES.length) win(); else renderPuzzle(); }, 800);
+    } else {
+      fb.textContent='違うようだ…もう一度考えよう。'; fb.className='feedback bad';
+    }
+  }
+  submit.addEventListener('click',check);
+  input.addEventListener('keydown',e=>{ if(e.key==='Enter') check(); });
+  // hint reveals the clue only when asked; second press adds the stronger hint
+  let hintLevel=0;
+  hintBtn.addEventListener('click',()=>{
+    hintLevel++;
+    if(hintLevel===1){ clueBox.style.display='block'; hintBtn.textContent='もっとヒント'; }
+    else { fb.textContent='ヒント：'+p.hint; fb.className='feedback'; hintBtn.style.display='none'; }
+  });
+
+  scheduleInterrupt();
+}
+
+function scheduleInterrupt(){
+  clearTimeout(popupTimer);
+  // pops up while you're trying to concentrate
+  const delay=6000+Math.random()*6000;   // longer gaps → fewer interruptions
+  popupTimer=setTimeout(showInterrupt, delay);
+}
+
+function showInterrupt(){
+  if(!solving) return;
+  if(document.querySelector('.pop')) { scheduleInterrupt(); return; }
+  const it=nextInterrupt();
+  const veil=document.createElement('div'); veil.className='veil';
+  const pop=document.createElement('div'); pop.className='pop';
+  pop.style.left=(30+Math.random()*40)+'%';
+  pop.style.top=(30+Math.random()*40)+'%';
+  pop.innerHTML=`
+    <button class="x" title="閉じる">✕</button>
+    <div class="pt">${it.t}</div>
+    <div class="pq">${it.q}</div>
+    <div class="preply">
+      <input type="text" class="pin" placeholder="自分で答えを入力…" autocomplete="off">
+      <button class="btn psend">送信</button>
+    </div>`;
+  room.appendChild(veil); room.appendChild(pop);
+  const pin=pop.querySelector('.pin');
+  setTimeout(()=>{ try{ pin.focus(); }catch(e){} }, 40);
+
+  function close(){
+    pop.remove(); veil.remove();
+    scheduleInterrupt();
+    const input=document.getElementById('ans'); if(input) input.focus();
+  }
+  const xbtn=pop.querySelector('.x');
+  let xAttempts=0;
+  xbtn.addEventListener('pointerenter',()=>{
+    // the X runs away from the cursor a few times
+    if(xAttempts<2){
+      xbtn.style.transform=`translate(${(Math.random()<.5?-1:1)*(30+Math.random()*40)}px, ${(Math.random()<.5?-1:1)*(20+Math.random()*30)}px)`;
+    }
+  });
+  xbtn.addEventListener('click',()=>{
+    xAttempts++;
+    if(xAttempts>=2){
+      // caught the X → a character bursts out and covers the whole screen
+      summonBlocker(pop, veil);
+    } else {
+      // first tap: X just dodges + a taunt
+      xbtn.textContent='✕';
+      xbtn.style.transform=`translate(${(Math.random()<.5?-1:1)*50}px, 30px)`;
+    }
+  });
+  function sendReply(){
+    const typed=pin.value.trim();
+    if(!typed) return;
+    annoyCount++; annoyEl.textContent=annoyCount;
+    const r=Math.random();
+    if(r<0.45){
+      reactBlocker(typed, pop, veil);        // angry retort about what they typed
+    } else if(r<0.55){
+      pop.remove(); veil.remove();
+      setTimeout(showInterrupt, 250);        // occasionally another popup
+    } else {
+      close();
+    }
+  }
+  pop.querySelector('.psend').addEventListener('click', sendReply);
+  pin.addEventListener('keydown', e=>{ if(e.key==='Enter') sendReply(); });
+}
+
+// snarky retorts that react to the option text
+const RETORTS=[
+  '「{c}」…本当にそう思ってる？',
+  '「{c}」って打つの、時間の無駄じゃない？',
+  'えっ、「{c}」って本気で？',
+  '「{c}」ねぇ…浅いなあ',
+  'その回答「{c}」、記録しておくね（意味深）',
+  '興味ないくせに「{c}」とか答えたな？',
+  'はぁ…「{c}」ですか。がっかり',
+  '今、脱出中でしょ？なに真面目に「{c}」とか打ってるの',
+  '「{c}」で本当にいいんだね？後悔するよ',
+  '「{c}」…あなたらしいっちゃらしい',
+  '「{c}」って、もうちょっと考えて打てないの？',
+  '出た、「{c}」。そう言うと思った',
+  '「{c}」か…まあ君の限界だよね',
+  'ふーん、「{c}」ね。誰も聞いてないけど',
+  '「{c}」を選ぶセンス、心配になる',
+  '「{c}」…それ本気で世に出す気？',
+  'また「{c}」みたいな薄い返事？',
+  '「{c}」って打った手が可哀想',
+  '「{c}」…はいはい、で？',
+  '「{c}」だってさ。周りに言いふらしとくね',
+  '「{c}」に3秒も迷ったでしょ、バレてるよ',
+  '「{c}」…その回答で人生うまくいってる？',
+  'よりによって「{c}」を選ぶとはね',
+  '「{c}」って、AIの私でも思いつくよ',
+];
+function reactBlocker(chosen, pop, veil){
+  const safe=String(chosen).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])).slice(0,40);
+  const wrap=document.querySelector('.wrap');
+  const cover=document.createElement('div');
+  cover.className='blocker react';
+  const line=RETORTS[Math.random()*RETORTS.length|0].replace('{c}', safe);
+  cover.innerHTML=`
+    <div class="bface">😠</div>
+    <div class="bline">${line}</div>
+    <button class="btn bdismiss">うるさい、先進ませて</button>`;
+  wrap.appendChild(cover);
+  cover.querySelector('.bdismiss').addEventListener('click',()=>{
+    cover.remove();
+    if(pop) pop.remove(); if(veil) veil.remove();
+    scheduleInterrupt();
+    const input=document.getElementById('ans'); if(input) input.focus();
+  });
+}
+
+const BLOCKERS=[
+  {face:'🙅', line:'閉じさせないよ〜！'},
+  {face:'🤪', line:'まだ話終わってないんだけど？'},
+  {face:'😤', line:'✕を押すなんて失礼な！'},
+  {face:'🫣', line:'こら、逃げないで！'},
+  {face:'👻', line:'ばあ！ まだ帰さないよ'},
+  {face:'🙈', line:'ボタン隠しちゃお'},
+];
+function summonBlocker(pop, veil){
+  annoyCount++; annoyEl.textContent=annoyCount;
+  const b=BLOCKERS[Math.random()*BLOCKERS.length|0];
+  const wrap=document.querySelector('.wrap');
+  const cover=document.createElement('div');
+  cover.className='blocker';
+  cover.innerHTML=`
+    <div class="bface">${b.face}</div>
+    <div class="bline">${b.line}</div>
+    <button class="btn bdismiss">…わかったから消えて</button>`;
+  wrap.appendChild(cover);
+  cover.querySelector('.bdismiss').addEventListener('click',()=>{
+    cover.remove();
+    if(pop) pop.remove(); if(veil) veil.remove();
+    scheduleInterrupt();
+    const input=document.getElementById('ans'); if(input) input.focus();
+  });
+}
+
+function win(){
+  solving=false; clearTimeout(popupTimer);
+  buildProgress();
+  room.innerHTML=`
+    <div class="win">
+      <div class="big">脱出成功！ 🎉</div>
+      <div>${PUZZLES.length}つの謎を解いて部屋を出た。</div>
+      <div style="margin-top:8px;color:#8b93a3;font-size:13px">…その間、じゃまされた回数：<b style="color:#e8b84b">${annoyCount}</b> 回</div>
+      <button class="btn startover" id="again">もう一回</button>
+    </div>`;
+  document.getElementById('again').addEventListener('click',startGame);
+}
+
+function startGame(){
+  PUZZLES=shuffle(ALL_PUZZLES.slice()).slice(0,10);
+  newPopQueue();
+  step=0; annoyCount=0; annoyEl.textContent=0;
+  renderPuzzle();
+}
+
+startGame();
+</script>
+</body>
+</html>

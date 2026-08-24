@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>3枚そろえ神経衰弱</title>
+<style>
+  :root {
+    --bg: #1f2933;
+    --card-back: #3b7a8c;
+    --card-back2: #2f6374;
+    --card-face: #f7f3ea;
+    --matched: #7fc4a6;
+    --ink: #1f2933;
+    --panel: #f7f3ea;
+    --accent: #f2b134;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--panel);
+    font-family: "Trebuchet MS", "Hiragino Maru Gothic ProN", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+    padding: 16px;
+  }
+  .wrap { width: min(96vw, 560px); }
+  h1 { color: var(--accent); font-size: 22px; letter-spacing: .06em; margin-bottom: 4px; }
+  .sub { color: #9fb2bf; font-size: 12px; margin-bottom: 14px; }
+  .hud {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 12px; font-size: 14px; letter-spacing: .04em;
+  }
+  .hud b { font-size: 20px; color: var(--accent); }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+  }
+  .card {
+    aspect-ratio: 3 / 4;
+    border-radius: 10px;
+    position: relative;
+    cursor: pointer;
+    perspective: 600px;
+  }
+  .inner {
+    position: absolute; inset: 0;
+    transition: transform .35s;
+    transform-style: preserve-3d;
+  }
+  .card.flipped .inner, .card.matched .inner { transform: rotateY(180deg); }
+  .face {
+    position: absolute; inset: 0;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    backface-visibility: hidden;
+    font-size: clamp(20px, 6vw, 34px);
+  }
+  .back {
+    background: linear-gradient(135deg, var(--card-back), var(--card-back2));
+    color: rgba(255,255,255,.35);
+    font-size: 18px;
+  }
+  .front {
+    background: var(--card-face);
+    color: var(--ink);
+    transform: rotateY(180deg);
+  }
+  .card.matched .front {
+    background: var(--matched);
+    box-shadow: 0 0 0 2px var(--matched), 0 6px 18px rgba(127,196,166,.4);
+  }
+  .card.busy { pointer-events: none; }
+  .msg { text-align: center; min-height: 22px; margin-top: 16px; font-size: 15px; color: var(--panel); }
+  .msg.win { color: var(--accent); font-size: 18px; }
+  .reset {
+    display: block; margin: 14px auto 0;
+    font-family: inherit; font-weight: bold; border: none; border-radius: 12px;
+    padding: 12px 26px; font-size: 15px; color: var(--ink); background: var(--accent); cursor: pointer;
+    transition: transform .05s;
+  }
+  .reset:active { transform: scale(.95); }
+  .overlay {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .15s;
+  }
+  .overlay.show { opacity: 1; }
+  .overlay .banner {
+    font-weight: bold;
+    font-size: clamp(34px, 10vw, 82px);
+    letter-spacing: .02em;
+    line-height: 1.15;
+    text-align: center;
+    padding: 0 20px;
+    transform: scale(.6);
+    transition: transform .25s cubic-bezier(.2,1.4,.4,1);
+    text-shadow: 0 6px 30px rgba(0,0,0,.5);
+  }
+  .overlay.show .banner { transform: scale(1); }
+  .overlay.match { background: rgba(127,196,166,.35); }
+  .overlay.match .banner { color: #eafff5; }
+  .overlay.close { background: rgba(242,177,52,.35); }
+  .overlay.close .banner { color: #fff4dc; }
+  .overlay.miss { background: rgba(31,41,51,.5); }
+  .overlay.miss .banner { color: #cdd9e0; }
+</style>
+</head>
+<body>
+<a href="../index.html" class="__backlink" style="position:fixed;top:10px;left:10px;z-index:99999;background:rgba(0,0,0,.55);color:#fff;font-family:sans-serif;font-size:13px;font-weight:bold;text-decoration:none;padding:8px 12px;border-radius:20px">&#8592; 一覧</a>
+<div class="wrap">
+  <h1>3枚そろえ神経衰弱</h1>
+  <div class="sub">同じ絵柄を3枚めくればそろい。30枚・制限時間なし。</div>
+  <div class="hud">
+    <span>そろい <b id="pairs">0</b> / 10</span>
+    <span>めくった回数 <b id="turns">0</b></span>
+  </div>
+  <div class="board" id="board"></div>
+  <div class="msg" id="msg">カードをめくってスタート</div>
+  <button class="reset" id="reset">最初から</button>
+</div>
+<div class="overlay" id="overlay"><div class="banner" id="banner"></div></div>
+<script>
+const SYMBOLS = ['🐭','🧀','🐱','⭐','🍎','🌙','🌵','🐟','🎈','🍄'];
+const COPIES = 3;      // cards per symbol
+const NEED = 3;        // cards to flip per turn
+
+const boardEl = document.getElementById('board');
+const pairsEl = document.getElementById('pairs');
+const turnsEl = document.getElementById('turns');
+const msgEl = document.getElementById('msg');
+const resetBtn = document.getElementById('reset');
+const overlayEl = document.getElementById('overlay');
+const bannerEl = document.getElementById('banner');
+
+const CLOSE_MSGS = ['惜しいで自分を慰めるの、みじめの極み', 'あと1枚が一生届かない、それが君の限界', 'ニアミスコレクター爆誕ｗ才能の無駄', '2枚で満足する低い基準、そりゃ勝てない', '運も実力も中途半端、いる意味ある？', '惜しいって言葉に甘えて何年生きてきたの', 'ここまで来て外す、逆に狙ってる？',  '惜しいは負け、負けは負け、君は負け', 'ドンマイって言ってほしそうな顔してるｗ'];
+const MATCH_MSGS = ['マグレを実力と勘違い、痛い痛いｗ', '1回そろえたくらいで人生変わらんよ？', 'できて当たり前、褒める要素マイナス', '奇跡は今ので使い切った、あとは地獄', 'ドヤ顔してる暇に次めくれや', 'まぐれに拍手〜（心の底から棒読み）', 'で？それ自慢のつもり？かわいいね', 'サルでも数打てば当たるらしいよ', '偶然の女神も呆れて帰ったってｗ'];
+const MISS_MSGS = ['今めくったの3秒前、痴呆か？', '目ん玉、飾りにしては役立たずすぎ', '記憶力ミジンコ以下、いやミジンコに失礼', 'その選択に脳みそ1グラムも使ってない', '本気でそれ選んだなら、もう医者行こ', 'ハズレを引く天才、そこだけは尊敬', '見てなかった宣言もう聞き飽きたｗ', '毎回外して楽しい？ドMなの？', 'カード側が君を避けてるまであるｗ'];
+
+let missStreak = 0;
+let matchStreak = 0;
+const MATCH_STREAK_MSGS = {
+  3: '3連続そろえた？カンニングしてない？',
+  4: '4連続…事前に配置見たでしょ正直に言え',
+  5: '5連続とか逆に怖い、通報していい？',
+  6: '6連発、そんなに暇なの？人生は？',
+};
+const STREAK_MSGS = {
+  3: 'は？3連続外し？才能の逆神降臨',
+  4: '4連ミス、そろそろ静かに引退して',
+  5: '5連続…見てるこっちが恥ずかしいわ',
+  6: 'もはや芸術的な下手さ、美術館行き',
+  7: '7連発、ギネスに申請しとこか？',
+  8: '8連続ハズレ、伝説の無能',
+  9: '9回連続…もう帰っていいよ、本当に',
+  10: '10連ミス達成🏆 記念すべき大惨事',
+  12: '12連発、逆に運営したくなるレベル',
+  15: '15連続…AIも言葉を失ってます',
+};
+
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+let overlayTimer = null;
+function showOverlay(kind, text) {
+  clearTimeout(overlayTimer);
+  overlayEl.className = 'overlay show ' + kind;
+  bannerEl.textContent = text;
+  overlayTimer = setTimeout(() => { overlayEl.className = 'overlay'; }, 900);
+}
+
+let deck, flipped, matchedCount, turns, busy;
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function newGame() {
+  deck = [];
+  SYMBOLS.forEach(sym => { for (let k = 0; k < COPIES; k++) deck.push(sym); });
+  shuffle(deck);
+  flipped = [];
+  matchedCount = 0;
+  turns = 0;
+  missStreak = 0;
+  matchStreak = 0;
+  busy = false;
+  pairsEl.textContent = 0;
+  turnsEl.textContent = 0;
+  msgEl.textContent = 'カードをめくってスタート';
+  msgEl.className = 'msg';
+  render();
+}
+
+function render() {
+  boardEl.innerHTML = '';
+  deck.forEach((sym, i) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.index = i;
+    card.innerHTML = `
+      <div class="inner">
+        <div class="face back">?</div>
+        <div class="face front">${sym}</div>
+      </div>`;
+    card.addEventListener('click', () => onFlip(i, card));
+    boardEl.appendChild(card);
+  });
+}
+
+function onFlip(i, card) {
+  if (busy) return;
+  if (card.classList.contains('flipped') || card.classList.contains('matched')) return;
+  if (flipped.length >= NEED) return;
+
+  card.classList.add('flipped');
+  flipped.push({ i, sym: deck[i], el: card });
+
+  if (flipped.length === NEED) {
+    turns++;
+    turnsEl.textContent = turns;
+    busy = true;
+    boardEl.classList.add('busy');
+    // count the largest group of identical symbols among the 3
+    const counts = {};
+    flipped.forEach(f => { counts[f.sym] = (counts[f.sym] || 0) + 1; });
+    const best = Math.max(...Object.values(counts));
+
+    if (best === 3) {
+      missStreak = 0;
+      matchStreak++;
+      showOverlay('match', MATCH_STREAK_MSGS[matchStreak] || pick(MATCH_MSGS));
+      setTimeout(resolveMatch, 350);
+    } else if (best === 2) {
+      matchStreak = 0;
+      missStreak++;
+      showOverlay('close', STREAK_MSGS[missStreak] || pick(CLOSE_MSGS));
+      msgEl.textContent = '惜しい…でも負けは負け';
+      setTimeout(resolveMiss, 900);
+    } else {
+      matchStreak = 0;
+      missStreak++;
+      showOverlay('miss', STREAK_MSGS[missStreak] || pick(MISS_MSGS));
+      msgEl.textContent = 'ハズレ';
+      setTimeout(resolveMiss, 900);
+    }
+  }
+}
+
+function resolveMatch() {
+  flipped.forEach(f => { f.el.classList.remove('flipped'); f.el.classList.add('matched'); });
+  matchedCount++;
+  pairsEl.textContent = matchedCount;
+  msgEl.textContent = 'そろった！';
+  clearTurn();
+  if (matchedCount === SYMBOLS.length) {
+    const clearLine = turns <= 15 ? `${turns}回…まあギリ人間の記憶力かな、ギリね`
+      : turns <= 25 ? `${turns}回もかかって、よく心折れなかったねｗ`
+      : `${turns}回て。これ自慢げに人に見せないでね、恥だから`;
+    msgEl.textContent = clearLine;
+    msgEl.className = 'msg win';
+  }
+}
+
+function resolveMiss() {
+  flipped.forEach(f => f.el.classList.remove('flipped'));
+  clearTurn();
+}
+
+function clearTurn() {
+  flipped = [];
+  busy = false;
+  boardEl.classList.remove('busy');
+}
+
+resetBtn.addEventListener('click', newGame);
+newGame();
+</script>
+</body>
+</html>

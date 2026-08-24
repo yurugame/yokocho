@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>チーズへの道</title>
+<style>
+  :root {
+    --wall: #2b2438;
+    --floor: #f2e9dc;
+    --floor-alt: #e9ddc8;
+    --mouse: #b9b6c4;
+    --cat: #e07a3f;
+    --cheese: #f2c14e;
+    --decoy: #6fae8f;
+    --ink: #2b2438;
+    --panel: #f7f1e6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: #221c2e;
+    color: var(--ink);
+    font-family: "Trebuchet MS", "Hiragino Maru Gothic ProN", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+  }
+  .wrap { width: min(96vw, 620px); padding: 16px; }
+  .hud {
+    display: flex; justify-content: space-between; align-items: baseline;
+    color: var(--panel); margin-bottom: 10px; font-size: 14px; letter-spacing: .04em;
+  }
+  .hud b { font-size: 20px; }
+  h1 { color: var(--cheese); font-size: 22px; letter-spacing: .06em; margin-bottom: 4px; }
+  .sub { color: #a99ec2; font-size: 12px; margin-bottom: 14px; }
+  canvas {
+    width: 100%; display: block; border-radius: 14px; background: var(--floor);
+    box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  }
+  .controls { margin-top: 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  button {
+    font-family: inherit; font-weight: bold; border: none; border-radius: 12px;
+    padding: 14px 0; font-size: 16px; color: var(--panel); background: #453a5a; cursor: pointer;
+    transition: transform .05s, background .15s;
+  }
+  button:active { transform: scale(.94); }
+  .pad button { background: #3a3050; }
+  .pad .up { grid-column: 2; }
+  .pad .left { grid-column: 1; grid-row: 2; }
+  .pad .down { grid-column: 2; grid-row: 2; }
+  .pad .right { grid-column: 3; grid-row: 2; }
+  .decoy-btn {
+    margin-top: 10px; width: 100%; background: var(--decoy); color: #123;
+    padding: 16px 0; font-size: 15px; letter-spacing: .04em;
+  }
+  .decoy-btn:disabled { background: #4c5b53; color: #8ea79b; cursor: default; }
+  .msg { text-align: center; color: var(--panel); min-height: 20px; margin-top: 12px; font-size: 15px; }
+  .msg.win { color: var(--cheese); }
+  .msg.lose { color: var(--cat); }
+</style>
+</head>
+<body>
+<a href="../index.html" class="__backlink" style="position:fixed;top:10px;left:10px;z-index:99999;background:rgba(0,0,0,.55);color:#fff;font-family:sans-serif;font-size:13px;font-weight:bold;text-decoration:none;padding:8px 12px;border-radius:20px">&#8592; 一覧</a>
+<div class="wrap">
+  <h1>チーズへの道</h1>
+  <div class="sub">3匹の猫が追ってくる。囮で気をそらしてチーズへ。道は毎回変わる。</div>
+  <div class="hud">
+    <span>ステージ <b id="level">1</b></span>
+    <span>囮 残り <b id="decoys">3</b></span>
+  </div>
+  <canvas id="game"></canvas>
+  <button class="decoy-btn" id="decoy">囮を置く（近くの猫を引き寄せる）</button>
+  <div class="controls pad">
+    <button class="up" data-dir="up">▲</button>
+    <button class="left" data-dir="left">◀</button>
+    <button class="down" data-dir="down">▼</button>
+    <button class="right" data-dir="right">▶</button>
+  </div>
+  <div class="msg" id="msg">矢印キー / ボタンで移動・スペースで囮</div>
+</div>
+<script>
+const TILE = 34;
+const CAT_INTERVAL = 700;   // ms between cat steps (higher = slower)
+const DECOY_TTL = 7000;
+const GRID_W = 15;          // odd numbers required for maze generation
+const GRID_H = 15;
+const NUM_CATS = 4;
+const EXTRA_OPENINGS = 26;  // knock out walls to make the maze more open/easier
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const levelEl = document.getElementById('level');
+const decoysEl = document.getElementById('decoys');
+const msgEl = document.getElementById('msg');
+const decoyBtn = document.getElementById('decoy');
+
+let grid, cols, rows, mouse, cats, goal, decoys, decoysLeft, levelIdx, running;
+let catTimer = 0, lastTime = 0, rafId = null;
+
+// --- Maze generation (recursive backtracker) ---
+function generateMaze(w, h) {
+  const g = Array.from({length: h}, () => Array(w).fill('#'));
+  function carve(cx, cy) {
+    g[cy][cx] = '.';
+    const dirs = [[0,-2],[0,2],[-2,0],[2,0]];
+    for (let i = dirs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+    }
+    for (const [dx, dy] of dirs) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx > 0 && ny > 0 && nx < w-1 && ny < h-1 && g[ny][nx] === '#') {
+        g[cy + dy/2][cx + dx/2] = '.';
+        carve(nx, ny);
+      }
+    }
+  }
+  carve(1, 1);
+  // open it up so it's easier / less maze-like
+  let opened = 0, tries = 0;
+  while (opened < EXTRA_OPENINGS && tries < 2000) {
+    tries++;
+    const x = 1 + Math.floor(Math.random() * (w - 2));
+    const y = 1 + Math.floor(Math.random() * (h - 2));
+    if (g[y][x] === '#') { g[y][x] = '.'; opened++; }
+  }
+  return g;
+}
+
+function floors(g) {
+  const list = [];
+  for (let y = 0; y < g.length; y++) for (let x = 0; x < g[0].length; x++)
+    if (g[y][x] === '.') list.push({x, y});
+  return list;
+}
+
+function bfsDist(g, from) {
+  const h = g.length, w = g[0].length;
+  const dist = Array.from({length: h}, () => Array(w).fill(-1));
+  dist[from.y][from.x] = 0;
+  const q = [from];
+  while (q.length) {
+    const c = q.shift();
+    for (const [dx, dy] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+      const nx = c.x + dx, ny = c.y + dy;
+      if (nx<0||ny<0||nx>=w||ny>=h||g[ny][nx]==='#'||dist[ny][nx]!==-1) continue;
+      dist[ny][nx] = dist[c.y][c.x] + 1;
+      q.push({x: nx, y: ny});
+    }
+  }
+  return dist;
+}
+
+function buildLevel() {
+  const g = generateMaze(GRID_W, GRID_H);
+  const cells = floors(g);
+  // mouse top-left area, goal far from mouse
+  const start = {x: 1, y: 1};
+  const dist = bfsDist(g, start);
+  let far = start, fd = -1;
+  for (const c of cells) if (dist[c.y][c.x] > fd) { fd = dist[c.y][c.x]; far = c; }
+  const goalPos = far;
+  // place cats on far-ish tiles, not too near mouse or goal, spread apart
+  const catPos = [];
+  const shuffled = cells.slice().sort(() => Math.random() - 0.5);
+  for (const c of shuffled) {
+    if (catPos.length >= NUM_CATS) break;
+    const dm = dist[c.y][c.x];
+    const dg = Math.abs(c.x-goalPos.x) + Math.abs(c.y-goalPos.y);
+    const okSpacing = catPos.every(p => Math.abs(p.x-c.x)+Math.abs(p.y-c.y) >= 4);
+    if (dm >= 6 && dg >= 3 && okSpacing) catPos.push({x: c.x, y: c.y});
+  }
+  // fallback if not enough spots found
+  while (catPos.length < NUM_CATS) {
+    const c = shuffled[catPos.length + 5] || shuffled[catPos.length];
+    catPos.push({x: c.x, y: c.y});
+  }
+  return { g, start, goalPos, catPos };
+}
+
+function loadLevel(i) {
+  const lv = buildLevel();
+  grid = lv.g;
+  rows = grid.length; cols = grid[0].length;
+  canvas.width = cols * TILE; canvas.height = rows * TILE;
+  mouse = { ...lv.start };
+  goal = { ...lv.goalPos };
+  cats = lv.catPos.map(c => ({ ...c }));
+  decoys = [];
+  decoysLeft = 3;
+  levelIdx = i;
+  running = true;
+  catTimer = 0;
+  levelEl.textContent = i + 1;
+  decoysEl.textContent = decoysLeft;
+  decoyBtn.disabled = false;
+  msgEl.textContent = '矢印キー / ボタンで移動・スペースで囮';
+  msgEl.className = 'msg';
+  canvas.onclick = null;
+  if (rafId) cancelAnimationFrame(rafId);
+  lastTime = performance.now();
+  rafId = requestAnimationFrame(loop);
+}
+
+function isWall(x, y) {
+  return x < 0 || y < 0 || x >= cols || y >= rows || grid[y][x] === '#';
+}
+
+function moveMouse(dx, dy) {
+  if (!running) return;
+  const nx = mouse.x + dx, ny = mouse.y + dy;
+  if (isWall(nx, ny)) return;
+  mouse.x = nx; mouse.y = ny;
+  if (mouse.x === goal.x && mouse.y === goal.y) { win(); return; }
+  checkCaught();
+}
+
+function nextStepToward(from, target) {
+  const key = (x, y) => y * cols + x;
+  const q = [from];
+  const prev = new Map();
+  prev.set(key(from.x, from.y), null);
+  let found = false;
+  while (q.length) {
+    const cur = q.shift();
+    if (cur.x === target.x && cur.y === target.y) { found = true; break; }
+    for (const [dx, dy] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+      const nx = cur.x + dx, ny = cur.y + dy;
+      if (isWall(nx, ny)) continue;
+      const k = key(nx, ny);
+      if (prev.has(k)) continue;
+      prev.set(k, cur);
+      q.push({x: nx, y: ny});
+    }
+  }
+  if (!found) return from;
+  let node = {x: target.x, y: target.y};
+  const path = [];
+  while (node) { path.push(node); node = prev.get(key(node.x, node.y)); }
+  path.reverse();
+  return path[1] || from;
+}
+
+function nearestDecoy(cat) {
+  let best = null, bd = Infinity;
+  for (const d of decoys) {
+    const dist = Math.abs(d.x - cat.x) + Math.abs(d.y - cat.y);
+    if (dist < bd) { bd = dist; best = d; }
+  }
+  return (best && bd <= 6) ? best : null;
+}
+
+function stepCats() {
+  for (const cat of cats) {
+    const lure = nearestDecoy(cat);
+    const target = lure || mouse;
+    const step = nextStepToward(cat, target);
+    cat.x = step.x; cat.y = step.y;
+  }
+  decoys = decoys.filter(d => !cats.some(c => c.x === d.x && c.y === d.y));
+  checkCaught();
+}
+
+function checkCaught() {
+  if (!running) return;
+  if (cats.some(c => c.x === mouse.x && c.y === mouse.y)) lose();
+}
+
+function placeDecoy() {
+  if (!running || decoysLeft <= 0) return;
+  let closest = cats[0], cd = Infinity;
+  for (const c of cats) {
+    const dist = Math.abs(c.x - mouse.x) + Math.abs(c.y - mouse.y);
+    if (dist < cd) { cd = dist; closest = c; }
+  }
+  const candidates = [];
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+    if (grid[y][x] === '#') continue;
+    const dm = Math.abs(x - mouse.x) + Math.abs(y - mouse.y);
+    const dc = Math.abs(x - closest.x) + Math.abs(y - closest.y);
+    if (dm >= 3 && dc <= 5) candidates.push({x, y, score: dm - dc});
+  }
+  let spot = { x: closest.x, y: closest.y };
+  if (candidates.length) {
+    candidates.sort((a, b) => b.score - a.score);
+    spot = { x: candidates[0].x, y: candidates[0].y };
+  }
+  decoys.push({ x: spot.x, y: spot.y, born: performance.now() });
+  decoysLeft--;
+  decoysEl.textContent = decoysLeft;
+  if (decoysLeft <= 0) decoyBtn.disabled = true;
+  msgEl.textContent = '囮を設置！近くの猫が向かう';
+}
+
+function loop(now) {
+  const dt = now - lastTime;
+  lastTime = now;
+  if (running) {
+    catTimer += dt;
+    if (catTimer >= CAT_INTERVAL) { catTimer -= CAT_INTERVAL; stepCats(); }
+    decoys = decoys.filter(d => now - d.born < DECOY_TTL);
+  }
+  draw(now);
+  rafId = requestAnimationFrame(loop);
+}
+
+function win() {
+  running = false;
+  msgEl.textContent = 'チーズ獲得！次のステージへ…';
+  msgEl.className = 'msg win';
+  setTimeout(() => loadLevel(levelIdx + 1), 1200);
+}
+
+function lose() {
+  running = false;
+  msgEl.textContent = '捕まった！ タップでリトライ（新しい道）';
+  msgEl.className = 'msg lose';
+  canvas.onclick = () => loadLevel(0);
+}
+
+function getVar(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function cx(x){ return x*TILE + TILE/2; }
+function cy(y){ return y*TILE + TILE/2; }
+
+function draw(now) {
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+    ctx.fillStyle = grid[y][x] === '#' ? getVar('--wall')
+      : ((x + y) % 2 ? getVar('--floor') : getVar('--floor-alt'));
+    ctx.fillRect(x*TILE, y*TILE, TILE, TILE);
+  }
+  drawCheese(goal.x, goal.y);
+  for (const d of decoys) drawDecoy(d.x, d.y, now);
+  for (const c of cats) drawCat(c.x, c.y);
+  drawMouse(mouse.x, mouse.y);
+}
+
+function drawCheese(x, y) {
+  const s = TILE;
+  ctx.fillStyle = getVar('--cheese');
+  ctx.beginPath();
+  ctx.moveTo(x*s+7, y*s+s-9);
+  ctx.lineTo(x*s+s-7, y*s+s-9);
+  ctx.lineTo(x*s+s/2, y*s+8);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#c99a2e';
+  ctx.beginPath(); ctx.arc(x*s+s*0.42, y*s+s*0.6, 2.2, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(x*s+s*0.6, y*s+s*0.62, 1.8, 0, 7); ctx.fill();
+}
+
+function drawDecoy(x, y, now) {
+  ctx.save();
+  ctx.fillStyle = getVar('--decoy');
+  ctx.globalAlpha = 0.55 + 0.25*Math.sin((now||0)/200);
+  ctx.beginPath(); ctx.arc(cx(x), cy(y), 11, 0, 7); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = '#123';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('囮', cx(x), cy(y));
+}
+
+function drawMouse(x, y) {
+  ctx.fillStyle = getVar('--mouse');
+  ctx.beginPath(); ctx.arc(cx(x), cy(y), 10, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx(x)-6, cy(y)-8, 4.5, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx(x)+6, cy(y)-8, 4.5, 0, 7); ctx.fill();
+  ctx.fillStyle = '#2b2438';
+  ctx.beginPath(); ctx.arc(cx(x)-3, cy(y)-1, 1.6, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx(x)+3, cy(y)-1, 1.6, 0, 7); ctx.fill();
+  ctx.fillStyle = '#e58fb0';
+  ctx.beginPath(); ctx.arc(cx(x), cy(y)+3.5, 1.8, 0, 7); ctx.fill();
+}
+
+function drawCat(x, y) {
+  ctx.fillStyle = getVar('--cat');
+  ctx.beginPath(); ctx.arc(cx(x), cy(y)+1, 11, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx(x)-9, cy(y)-7); ctx.lineTo(cx(x)-3, cy(y)-13); ctx.lineTo(cx(x)-2, cy(y)-4); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx(x)+9, cy(y)-7); ctx.lineTo(cx(x)+3, cy(y)-13); ctx.lineTo(cx(x)+2, cy(y)-4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#2b2438';
+  ctx.beginPath(); ctx.arc(cx(x)-4, cy(y)-1, 1.8, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx(x)+4, cy(y)-1, 1.8, 0, 7); ctx.fill();
+}
+
+document.addEventListener('keydown', e => {
+  const map = { ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0] };
+  if (map[e.key]) { e.preventDefault(); moveMouse(...map[e.key]); }
+  if (e.key === ' ') { e.preventDefault(); placeDecoy(); }
+});
+document.querySelectorAll('.pad button').forEach(b => {
+  b.addEventListener('click', () => {
+    const d = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0] }[b.dataset.dir];
+    moveMouse(...d);
+  });
+});
+decoyBtn.addEventListener('click', placeDecoy);
+
+loadLevel(0);
+</script>
+</body>
+</html>

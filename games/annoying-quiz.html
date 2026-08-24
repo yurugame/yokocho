@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ムカつく三択クイズ</title>
+<style>
+  :root{
+    --bg:#14101a; --stage:#1d1726; --panel:#f3eef7; --ink:#14101a;
+    --a:#ff5d73; --b:#ffb038; --accent:#8b5cf6; --good:#3fb27f; --bad:#ff5d73;
+  }
+  *{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+  html,body{min-height:100%;background:var(--bg);color:var(--panel);
+    font-family:"Trebuchet MS","Hiragino Maru Gothic ProN",sans-serif;
+    display:flex;align-items:center;justify-content:center;
+    -webkit-user-select:none;user-select:none;touch-action:manipulation;padding:14px}
+  .wrap{width:min(96vw,470px)}
+  h1{font-size:20px;letter-spacing:.04em;color:var(--b);margin-bottom:2px}
+  .sub{color:#9c8fb0;font-size:11px;margin-bottom:10px}
+  .hud{display:flex;justify-content:space-between;font-size:13px;color:#9c8fb0;margin-bottom:8px}
+  .hud b{font-size:19px;color:var(--panel)}
+  .stage{position:relative;height:430px;border-radius:14px;overflow:hidden;
+    background:radial-gradient(circle at 50% 20%,#251d31,#170f20);
+    box-shadow:0 12px 40px rgba(0,0,0,.5)}
+  .q{position:absolute;top:0;left:0;right:0;padding:20px 18px 12px;
+    font-size:17px;font-weight:bold;line-height:1.5;text-align:center;z-index:5;
+    text-shadow:0 2px 8px rgba(0,0,0,.6)}
+  .qnum{color:var(--b);font-size:12px;display:block;margin-bottom:4px}
+  .choice{position:absolute;min-width:96px;max-width:200px;padding:12px 16px;border-radius:12px;
+    font-family:inherit;font-weight:bold;font-size:15px;color:var(--ink);background:var(--panel);
+    border:none;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.4);text-align:center;
+    transition:background .1s;will-change:transform}
+  .choice:active{filter:brightness(.9)}
+  .banner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    text-align:center;padding:24px;font-size:26px;font-weight:bold;z-index:20;
+    opacity:0;pointer-events:none;transition:opacity .12s;line-height:1.4}
+  .banner.show{opacity:1;pointer-events:auto}
+  .banner.correct{background:rgba(63,178,127,.22);color:#c9ffe6}
+  .banner.wrong{background:rgba(255,93,115,.24);color:#ffd7dd}
+  .banner .tap{position:absolute;bottom:20px;font-size:13px;font-weight:normal;opacity:.8}
+  .msg{text-align:center;min-height:20px;margin-top:12px;font-size:15px;color:#c9bde0}
+  .restart{margin-top:12px;width:100%;font-family:inherit;font-weight:bold;border:none;
+    border-radius:12px;padding:14px 0;font-size:16px;color:#fff;background:var(--accent);cursor:pointer;display:none}
+  .restart.show{display:block}
+  .start{margin-top:12px;width:100%;font-family:inherit;font-weight:bold;border:none;
+    border-radius:12px;padding:16px 0;font-size:17px;color:#231a30;background:var(--b);cursor:pointer}
+</style>
+</head>
+<body>
+<a href="../index.html" class="__backlink" style="position:fixed;top:10px;left:10px;z-index:99999;background:rgba(0,0,0,.55);color:#fff;font-family:sans-serif;font-size:13px;font-weight:bold;text-decoration:none;padding:8px 12px;border-radius:20px">&#8592; 一覧</a>
+<div class="wrap">
+  <h1>ムカつく三択クイズ</h1>
+  <div class="sub">選択肢は逃げる。正解しても間違えても煽られる。引っ掛けに気をつけろ（無駄だけど）。</div>
+  <div class="hud">
+    <span>第 <b id="qn">1</b> / 10 問</span>
+    <span>正解 <b id="score">0</b></span>
+  </div>
+  <div class="stage" id="stage">
+    <div class="q" id="q"><span class="qnum" id="qnum">Q1</span><span id="qtext"></span></div>
+    <div class="banner" id="banner"><span id="bantext"></span><span class="tap">タップで次へ</span></div>
+  </div>
+  <button class="start" id="start">スタート</button>
+  <button class="restart" id="restart">もう一回（どうせまた煽られる）</button>
+  <div class="msg" id="msg">「スタート」で開始</div>
+</div>
+<script>
+// Trick quiz. Each: q, choices[3], answer index.
+const ALL_QUIZ=[
+  {q:'コップ半分の水。君の見方は？', c:['半分ある','半分しかない','君の努力もこのくらい'], a:0},
+  {q:'鏡に映るのは誰？', c:['自分','逆の自分','正解を外す人'], a:0},
+  {q:'エレベーターとエスカレーター、動くのは？', c:['両方','エスカレーター','君の目線だけ'], a:0},
+  {q:'「はい」か「いいえ」で答えて。賢い？', c:['はい','いいえ','答えられてない時点で…'], a:2},
+  {q:'次のうち一番重いのは？', c:['1kgの鉄','1kgの綿','君の反応の鈍さ'], a:2},
+  {q:'信号の一番上は何色？', c:['赤','上','見りゃ分かるでしょ、外出て'], a:0},
+  {q:'漢字「木」が3つで？', c:['森','多い','読めなかったでしょ'], a:0},
+  {q:'このクイズ、勝てると思う？', c:['思う','思わない','その自信が敗因'], a:2},
+  {q:'カレーの色は？', c:['茶色','美味しそう','食べたことある？'], a:0},
+  {q:'1分は何秒？', c:['60秒','短い','え、迷った？'], a:0},
+  {q:'次のうち動物じゃないのは？', c:['犬','石','君の集中力'], a:1},
+  {q:'今、笑ってる？怒ってる？', c:['笑ってる','怒ってる','図星で固まった'], a:1},
+  {q:'足し算と引き算、簡単なのは？', c:['人による','足し算','どっちも苦手そう'], a:0},
+  {q:'空が青いのはなぜ？（雰囲気で）', c:['光の散乱','なんとなく','説明できないくせに'], a:0},
+  {q:'一番端にある選択肢は？', c:['これ','動くから知らん','追いつけないでしょ'], a:1},
+  {q:'君の今日の運勢は？', c:['大吉','凶','この正解率で大吉？'], a:2},
+  {q:'雪は何色？', c:['白','冷たい','溶ける前に答えて'], a:0},
+  {q:'次のうち丸くないのは？', c:['ボール','地球','君の詰めの甘さ'], a:2},
+  {q:'「上」の反対は？', c:['下','逆さ','それすら迷う？'], a:0},
+  {q:'このゲーム作ったの、君より賢い？', c:['はい','認めたくない','認めなよ、事実'], a:2},
+  {q:'蝶は何から育つ？', c:['さなぎ','幼虫','君は成長しないけど'], a:0},
+  {q:'3の次の数は？', c:['4','増えた','指使った？'], a:0},
+  {q:'一番速く逃げる選択肢は？', c:['これ','全部逃げる','君が遅いだけ'], a:1},
+  {q:'今日ちゃんとご飯食べた？', c:['はい','いいえ','正解率見ると脳に栄養行ってない'], a:0},
+  {q:'虹はどこにかかる？', c:['空','雨上がり','見たことないでしょ'], a:0},
+  {q:'一番信用できない選択肢は？', c:['これ','それ','全部（正解）'], a:2},
+  {q:'「犬」の鳴き声は？', c:['ワン','うるさい','それすら自信ない顔'], a:0},
+  {q:'君の指、狙い通り動いてる？', c:['はい','いいえ','どうせ空振り中'], a:1},
+  {q:'四角形の角は何個？', c:['4個','多い','数えないと分からない？'], a:0},
+  {q:'この問題、簡単？難しい？', c:['簡単','難しい','君には全部難しい'], a:2},
+  {q:'太陽と月、昼に出るのは？', c:['太陽','月','空見てないでしょ'], a:0},
+  {q:'次のうち飲めないのは？', c:['水','お茶','君のプライド'], a:2},
+  {q:'ペンギンは飛べる？', c:['飛べない','泳ぐ','君の得点も飛ばない'], a:0},
+  {q:'今、何回外した？', c:['覚えてない','数えたくない','ほら向き合えない'], a:1},
+  {q:'ラスト。君は賢かった？', c:['はい','いいえ','結果が全てを語ってる'], a:2},
+];
+
+let QUIZ=[]; // per-run selection
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]];} return a; }
+
+function buildQuiz(){
+  QUIZ = shuffle(ALL_QUIZ.slice()).slice(0,10);
+  // also shuffle each question's choices, keeping the answer pointer correct
+  QUIZ = QUIZ.map(item=>{
+    const order=shuffle([0,1,2]);
+    const c=order.map(k=>item.c[k]);
+    const a=order.indexOf(item.a);
+    return {q:item.q, c, a};
+  });
+}
+
+const CORRECT_TAUNTS=[
+  '正解…どうせ勘でしょ？実力じゃないよね','当たったの？画面覗き見してない？','ふーん正解。で、それ人生の役に立つ？',
+  '正解だけど、その程度で喜べるの安上がりだね','はいはい正解、指だけは達者だね','当ててドヤ顔してそうで見てて痛い',
+  '正解。でも君の人生は不正解の連続だけどね','よく当たったね、壊れた時計も日に二度合うって言うし',
+  '正解。奇跡って本当にあるんだ、記念日にしとけば？','当たり。まあ猿がキーボード叩いても稀に文字になるしね',
+  '正解。ここだけは輝けたね、他は暗いけど','当たった。誰も見てないのに誰に自慢するの？',
+  '正解。その集中力を人生に使えば良かったのに','はい正解。1問正解ごとに賢さ錯覚するの、かわいそう',
+  '正解だってさ。ハードル下げすぎて地面にめり込んでるよ',
+  '正解。今日の唯一の成功体験、大事にしなよ','当たり。褒めてないからね、事実を述べただけ',
+  '正解。でも次で外すのが君、知ってる','はい正解。まぐれの神様、今だけ味方したね'
+];
+const WRONG_TAUNTS=[
+  'えっそれ選んだ？本気で？目ついてる？','ブブー。予想通りすぎて欠伸出た','はずれ〜幼稚園児のほうが賢いよ',
+  'それはないわ〜脳みそ使う気ある？','間違い。まあ君に期待した私がバカだった','残念、その頭は帽子かけ用？',
+  'ハズレ。動く文字に翻弄される反射神経、蚊以下','不正解。問題ちゃんと読んだ？あ、読めないのか',
+  'はずれ。君の人生の選択、全部これなんだろうね','ブー。当てる気ある？それとも当てられないの？（後者だね）',
+  '不正解。三択で外すって逆に難しいのに、才能だね','はずれ。サイコロ振ったほうがマシだったね',
+  'ブブー。その自信どこから来るの？根拠ゼロなのに','間違い。今ので君の株、また下がったよ',
+  'ハズレ。ちなみに正解は逃げてたやつ、追いつけない君らしい','不正解。もう選ばないほうが正解率上がるんじゃない？',
+  'はずれ。画面の前で固まってる姿、想像すると笑える',
+  '不正解。君の指と脳、連携取れてないね','ブー。三択で外す確率のほうを引くとか、逆に運命',
+  'はずれ。もう当てずっぽうでいいよ、そのほうが当たる','間違い。がっかりを通り越して心配になってきた',
+  '不正解。この調子だと最後まで一問も…あ、言っちゃった'
+];
+
+const stage=document.getElementById('stage');
+const qEl=document.getElementById('q'), qtextEl=document.getElementById('qtext'), qnumEl=document.getElementById('qnum');
+const qnEl=document.getElementById('qn'), scoreEl=document.getElementById('score');
+const banner=document.getElementById('banner'), bantextEl=document.getElementById('bantext');
+const msgEl=document.getElementById('msg');
+const startBtn=document.getElementById('start'), restartBtn=document.getElementById('restart');
+
+let idx, score, choiceEls=[], anim=null, locked, playing=false;
+const SW=()=>stage.clientWidth, SH=()=>stage.clientHeight;
+
+function pick(a){ return a[Math.random()*a.length|0]; }
+
+function start(){
+  buildQuiz();
+  idx=0; score=0; playing=true;
+  scoreEl.textContent=0;
+  startBtn.style.display='none';
+  restartBtn.classList.remove('show');
+  msgEl.textContent='選択肢は動く。頑張って当てろ。';
+  showQuestion();
+}
+
+function clearChoices(){
+  if(anim){ cancelAnimationFrame(anim); anim=null; }
+  choiceEls.forEach(c=>c.remove());
+  choiceEls=[];
+}
+
+function showQuestion(){
+  clearChoices();
+  locked=false;
+  banner.classList.remove('show','correct','wrong');
+  const item=QUIZ[idx];
+  qnumEl.textContent='Q'+(idx+1);
+  qtextEl.textContent=item.q;
+  qnEl.textContent=idx+1;
+
+  const top=110, bottom=SH()-70;
+  item.c.forEach((text,i)=>{
+    const btn=document.createElement('button');
+    btn.className='choice';
+    btn.textContent=text;
+    // random tint so none looks "safe"
+    btn.style.background=['#f3eef7','#ffe6c2','#ffd7de'][i%3];
+    stage.appendChild(btn);
+    // initial position spread out
+    const bw=150, bh=46;
+    const px=20+Math.random()*(SW()-bw-40);
+    const py=top+ i*((bottom-top-bh)/2);
+    const st={
+      el:btn, x:px, y:Math.min(py, bottom-bh),
+      vx:(Math.random()<.5?-1:1)*(0.6+Math.random()*0.9),
+      vy:(Math.random()<.5?-1:1)*(0.6+Math.random()*0.9),
+      w:bw, h:bh
+    };
+    btn.__st=st;
+    place(st);
+    // every choice dodges the cursor equally — no tell for the answer
+    btn.addEventListener('pointerenter',()=>{ if(!locked) flee(st); });
+    btn.addEventListener('pointerdown',ev=>{ ev.preventDefault(); choose(i); });
+    choiceEls.push(btn);
+  });
+  moveLoop();
+}
+
+function place(st){
+  st.el.style.transform=`translate(${st.x}px,${st.y}px)`;
+}
+
+function flee(st){
+  st.vx += (Math.random()<.5?-1:1)*2.4;
+  st.vy += (Math.random()<.5?-1:1)*2.4;
+}
+
+function moveLoop(){
+  const speed=1 + idx*0.18; // later questions move faster
+  const bw=SW(), bh=SH(), top=104;
+  for(const c of choiceEls){
+    const st=c.__st; if(!st) continue;
+    st.x += st.vx*speed;
+    st.y += st.vy*speed;
+    // gentle friction so fleeing spikes settle back to base drift
+    st.vx*=0.99; st.vy*=0.99;
+    const base=0.5;
+    if(Math.abs(st.vx)<base) st.vx += (st.vx<0?-1:1)*0.02;
+    if(Math.abs(st.vy)<base) st.vy += (st.vy<0?-1:1)*0.02;
+    if(st.x<8){ st.x=8; st.vx=Math.abs(st.vx); }
+    if(st.x>bw-st.w-8){ st.x=bw-st.w-8; st.vx=-Math.abs(st.vx); }
+    if(st.y<top){ st.y=top; st.vy=Math.abs(st.vy); }
+    if(st.y>bh-st.h-8){ st.y=bh-st.h-8; st.vy=-Math.abs(st.vy); }
+    place(st);
+  }
+  anim=requestAnimationFrame(moveLoop);
+}
+
+function choose(i){
+  if(locked) return;
+  locked=true;
+  if(anim){ cancelAnimationFrame(anim); anim=null; }
+  const correct = i===QUIZ[idx].a;
+  if(correct){ score++; scoreEl.textContent=score; }
+  banner.className='banner show '+(correct?'correct':'wrong');
+  bantextEl.textContent=(correct?'⭕ ':'❌ ')+pick(correct?CORRECT_TAUNTS:WRONG_TAUNTS);
+}
+
+function nextQuestion(){
+  idx++;
+  if(idx>=QUIZ.length){ finish(); return; }
+  showQuestion();
+}
+
+function finish(){
+  clearChoices();
+  playing=false;
+  banner.className='banner show '+(score>=7?'correct':'wrong');
+  let verdict;
+  if(score>=9) verdict='ほぼ全問正解…でもこのクイズに勝っても現実じゃ勝てないの、知ってた？';
+  else if(score>=6) verdict=score+'問正解。ザ・平凡。誰も君を覚えてないタイプ';
+  else if(score>=3) verdict=score+'問正解。動く文字にすら勝てないの、そろそろ自覚して？';
+  else verdict=score+'問正解。……ここまで取れないの逆に才能。無駄な才能だけど';
+  bantextEl.textContent='結果：'+score+'/10\n'+verdict;
+  banner.querySelector('.tap').textContent='';
+  restartBtn.classList.add('show');
+  msgEl.textContent='';
+}
+
+// tap banner to advance
+banner.addEventListener('pointerdown',()=>{
+  if(!banner.classList.contains('show')) return;
+  if(!playing) return;
+  banner.classList.remove('show');
+  nextQuestion();
+});
+startBtn.addEventListener('click',start);
+restartBtn.addEventListener('click',start);
+</script>
+</body>
+</html>

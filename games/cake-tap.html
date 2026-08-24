@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ケーキタップ反射神経</title>
+<style>
+  :root{
+    --bg:#241a22; --stage:#2e2029; --panel:#fdf4ee; --ink:#3a2530;
+    --accent:#ff7aa8; --good:#f5a3c7; --bad:#c0532f; --heart:#ff5d73;
+  }
+  *{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;background:var(--bg);color:var(--panel);
+    font-family:"Trebuchet MS","Hiragino Maru Gothic ProN",sans-serif;
+    display:flex;align-items:center;justify-content:center;
+    -webkit-user-select:none;user-select:none;touch-action:manipulation;padding:14px}
+  .wrap{width:min(96vw,460px)}
+  h1{font-size:20px;letter-spacing:.04em;color:var(--accent);margin-bottom:2px}
+  .sub{color:#b39aa8;font-size:11px;margin-bottom:10px}
+  .hud{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .score{font-size:13px;color:#b39aa8}.score b{font-size:24px;color:var(--panel)}
+  .lives{font-size:22px;letter-spacing:2px}
+  .stage{position:relative;width:100%;aspect-ratio:1/1;max-height:64vh;border-radius:16px;overflow:hidden;
+    background:radial-gradient(circle at 50% 20%,#382630,#241820)}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .banner{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:24px;background:rgba(36,24,32,.85);z-index:20;opacity:0;pointer-events:none;transition:opacity .15s}
+  .banner.show{opacity:1;pointer-events:auto}
+  .banner .big{font-size:26px;font-weight:bold;color:var(--accent);margin-bottom:8px}
+  .banner .s{font-size:15px;color:var(--panel)}
+  .stage{box-shadow:0 12px 40px rgba(0,0,0,.5)}
+  .msg{text-align:center;min-height:20px;margin-top:12px;font-size:15px;color:#d8bccd}
+  .btn{margin-top:12px;width:100%;font-family:inherit;font-weight:bold;border:none;border-radius:12px;
+    padding:16px 0;font-size:17px;color:#3a1f2b;background:var(--accent);cursor:pointer}
+  .btn.restart{display:none}.btn.restart.show{display:block}
+</style>
+</head>
+<body>
+<a href="../index.html" class="__backlink" style="position:fixed;top:10px;left:10px;z-index:99999;background:rgba(0,0,0,.55);color:#fff;font-family:sans-serif;font-size:13px;font-weight:bold;text-decoration:none;padding:8px 12px;border-radius:20px">&#8592; 一覧</a>
+<div class="wrap">
+  <h1>ケーキタップ反射神経</h1>
+  <div class="sub">下から投げ上げられるケーキを、落ちる前にタップ！ でもピンクと赤の「肉ケーキ」を触るとライフが1つ減る。</div>
+  <div class="hud">
+    <div class="score">スコア <b id="score">0</b></div>
+    <div class="lives" id="lives">❤️❤️❤️</div>
+  </div>
+  <div class="stage" id="stage">
+    <canvas id="c"></canvas>
+    <div class="banner" id="banner">
+      <div class="big" id="btitle">ゲームオーバー</div>
+      <div class="s" id="bsub"></div>
+    </div>
+  </div>
+  <button class="btn" id="start">スタート</button>
+  <button class="btn restart" id="restart">もう一回</button>
+  <div class="msg" id="msg">「スタート」で開始</div>
+</div>
+<script>
+const CAKES=['🍰','🧁','🎂'];
+const MEAT='🍖';
+const LLIFE=3;
+
+const stage=document.getElementById('stage');
+const cv=document.getElementById('c');
+const ctx=cv.getContext('2d');
+const scoreEl=document.getElementById('score');
+const livesEl=document.getElementById('lives');
+const msgEl=document.getElementById('msg');
+const startBtn=document.getElementById('start');
+const restartBtn=document.getElementById('restart');
+const banner=document.getElementById('banner');
+const btitle=document.getElementById('btitle');
+const bsub=document.getElementById('bsub');
+
+let W,H,DPR;
+function fitCanvas(){
+  DPR=window.devicePixelRatio||1;
+  W=stage.clientWidth; H=stage.clientHeight;
+  cv.width=W*DPR; cv.height=H*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize',fitCanvas);
+
+let score, lives, playing, items=[], spawnTimer, lastFrame, raf=null;
+const GRAV=0.42;   // gravity for the toss arc
+const R=42;        // tap radius / draw size (bigger cakes)
+
+function start(){
+  fitCanvas();
+  score=0; lives=LLIFE; playing=true;
+  scoreEl.textContent=0; renderLives();
+  banner.classList.remove('show');
+  startBtn.style.display='none'; restartBtn.classList.remove('show');
+  msgEl.textContent='ケーキをタップ！肉は避けろ！';
+  items=[];
+  clearTimeout(spawnTimer);
+  scheduleSpawn();
+  lastFrame=performance.now();
+  if(!raf) raf=requestAnimationFrame(loop);
+}
+
+function renderLives(){ livesEl.textContent='❤️'.repeat(Math.max(0,lives))+'🖤'.repeat(LLIFE-Math.max(0,lives)); }
+
+function scheduleSpawn(){
+  if(!playing) return;
+  spawn();
+  const gap=Math.max(360, 900 - score*7);
+  spawnTimer=setTimeout(scheduleSpawn, gap);
+}
+
+function spawn(){
+  if(!playing) return;
+  const isMeat=Math.random()<0.24;
+  const x=R+10+Math.random()*(W-(R+10)*2);
+  // toss from just below the bottom, arc up into view
+  const peak=18+Math.random()*(H*0.18);          // reaches higher up the screen
+  const vy=-Math.sqrt(2*GRAV*(H-peak));          // launch velocity to reach peak
+  const vx=(Math.random()-0.5)*3.2;
+  items.push({
+    x, y:H+R, vx, vy, rot:0,
+    vr:(Math.random()-0.5)*0.2,
+    isMeat, emoji:isMeat?MEAT:CAKES[Math.random()*CAKES.length|0],
+    cakeEmoji:CAKES[Math.random()*CAKES.length|0],
+    dead:false, pop:0
+  });
+}
+
+function loop(now){
+  const dt=Math.min(2, (now-(lastFrame||now))/16.67); lastFrame=now;
+  ctx.clearRect(0,0,W,H);
+  if(playing){
+    for(const it of items){
+      it.vy+=GRAV*dt; it.x+=it.vx*dt; it.y+=it.vy*dt; it.rot+=it.vr*dt;
+    }
+    // remove ones that fell back below the bottom
+    items=items.filter(it=> !it.dead && it.y<H+R*2.4);
+  }
+  // draw
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const it of items){
+    ctx.save();
+    ctx.translate(it.x,it.y);
+    const s=it.pop>0? 1+it.pop*0.5 : 1;
+    ctx.globalAlpha=it.pop>0? Math.max(0,1-it.pop) : 1;
+    if(it.isMeat){
+      // 肉ケーキ = ケーキを赤い肉のような色と霜降り模様に
+      ctx.rotate(it.rot);
+      ctx.font=(R*2*s)+'px serif';
+      ctx.fillText(it.cakeEmoji,0,2);
+      // tint + meat texture, clipped to this cake only
+      ctx.save();
+      ctx.beginPath(); ctx.arc(0,0,R*s,0,7); ctx.clip();
+      ctx.globalCompositeOperation='source-atop';
+      // deep red meat base
+      ctx.fillStyle='rgba(200,30,45,.28)';
+      ctx.fillRect(-R*s,-R*s,R*2*s,R*2*s);
+      // darker red shading
+      ctx.fillStyle='rgba(150,15,30,.20)';
+      ctx.beginPath(); ctx.arc(R*0.25*s,R*0.3*s,R*0.9*s,0,7); ctx.fill();
+      // pinkish highlight
+      ctx.fillStyle='rgba(255,140,150,.16)';
+      ctx.beginPath(); ctx.arc(-R*0.35*s,-R*0.3*s,R*0.6*s,0,7); ctx.fill();
+      // marbling — white fat streaks
+      ctx.strokeStyle='rgba(255,240,235,.26)';
+      ctx.lineWidth=Math.max(1.4,R*s*0.05);
+      ctx.lineCap='round';
+      for(let k=0;k<5;k++){
+        const yy=(-R + k*(R*2/5) + R*0.25)*s;
+        ctx.beginPath();
+        ctx.moveTo(-R*s, yy + Math.sin(k)*4);
+        ctx.bezierCurveTo(-R*0.3*s, yy-6*s, R*0.3*s, yy+6*s, R*s, yy + Math.cos(k)*4);
+        ctx.stroke();
+      }
+      ctx.restore();
+    } else {
+      ctx.rotate(it.rot);
+      ctx.font=(R*2*s)+'px serif';
+      ctx.fillText(it.emoji,0,2);
+    }
+    ctx.restore();
+    if(it.pop>0){ it.pop+=0.08; if(it.pop>=1) it.dead=true; }
+  }
+  drawFloats();
+  raf=requestAnimationFrame(loop);
+}
+
+// floating +1 / -1 texts
+let floats=[];
+function floatText(t,color,x,y){ floats.push({t,color,x,y,life:42}); }
+function drawFloats(){
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const f of floats){
+    ctx.globalAlpha=Math.min(1,f.life/24);
+    ctx.font='bold 22px sans-serif'; ctx.fillStyle=f.color;
+    ctx.fillText(f.t,f.x,f.y); ctx.globalAlpha=1;
+    f.y-=1.1; f.life--;
+  }
+  floats=floats.filter(f=>f.life>0);
+}
+
+function tapAt(px,py){
+  if(!playing) return;
+  // topmost (last drawn) item under the finger wins
+  for(let i=items.length-1;i>=0;i--){
+    const it=items[i];
+    if(it.dead||it.pop>0) continue;
+    if(Math.hypot(px-it.x,py-it.y)<=R+6){
+      hit(it); return;
+    }
+  }
+}
+
+function hit(it){
+  if(it.isMeat){
+    lives--; renderLives();
+    floatText('-1❤️','#ff5d73',it.x,it.y);
+    it.pop=0.01;
+    if(lives<=0){ end(); return; }
+    flash('肉ケーキ！ ライフ-1');
+  } else {
+    score++; scoreEl.textContent=score;
+    floatText('+1','#f5a3c7',it.x,it.y);
+    it.pop=0.01;
+  }
+}
+
+cv.addEventListener('pointerdown',ev=>{
+  ev.preventDefault();
+  const r=cv.getBoundingClientRect();
+  tapAt((ev.clientX-r.left), (ev.clientY-r.top));
+});
+
+let flashTimer=null;
+function flash(t){
+  msgEl.textContent=t;
+  clearTimeout(flashTimer);
+  flashTimer=setTimeout(()=>{ if(playing) msgEl.textContent='ケーキをタップ！肉は避けろ！'; },800);
+}
+
+function end(){
+  playing=false;
+  clearTimeout(spawnTimer);
+  btitle.textContent='ゲームオーバー';
+  bsub.textContent='スコア '+score+' 個のケーキをゲット！';
+  banner.classList.add('show');
+  restartBtn.classList.add('show');
+  msgEl.textContent='';
+}
+
+startBtn.addEventListener('click',start);
+restartBtn.addEventListener('click',start);
+fitCanvas();
+</script>
+</body>
+</html>
